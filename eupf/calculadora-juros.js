@@ -1,6 +1,9 @@
 document.getElementById("calcular").addEventListener("click", function (e) {
   e.preventDefault();
 
+  // Dutch texts on the /nl/ version (was a separate copy of this file); other languages unchanged.
+  const NL = /^nl/i.test(document.documentElement.getAttribute("lang") || "");
+
   $(".all-results_wrapper").css("display", "flex");
 
   const parseFormattedNumber = (value) =>
@@ -213,10 +216,10 @@ document.getElementById("calcular").addEventListener("click", function (e) {
       <table>
         <thead>
           <tr>
-            <th>Period</th>
-            <th>Total investments</th>
-            <th>Accumulated interest</th>
-            <th>Final balance</th>
+            <th>${NL ? "Periode" : "Period"}</th>
+            <th>${NL ? "Totale investeringen" : "Total investments"}</th>
+            <th>${NL ? "Gecumuleerde rente" : "Accumulated interest"}</th>
+            <th>${NL ? "Eindsaldo" : "Final balance"}</th>
           </tr>
         </thead>
         <tbody>
@@ -238,7 +241,28 @@ document.getElementById("calcular").addEventListener("click", function (e) {
       ? lastConsoleRow["Juros Acumulados"]
       : formatCurrency(accumulatedInterest);
 
-  const resumeText = `
+  const resumeText = NL ? `
+      Als je begint met een <b>startbedrag van ${formatCurrency(
+        initialInvestment
+      )}</b> en <b>${formatCurrency(
+    monthlyInvestment
+  )}</b> per maand investeert tegen een <b>jaarlijks rendement van ${annualYield
+    .toFixed(2)
+    .replace(
+      ".",
+      ","
+    )}%</b> gedurende <b>${periodYears} jaar</b>, bereik je een <b>eindkapitaal van ${formatCurrency(
+    finalCapital
+  )}</b>. Dit bedrag bestaat uit <b>${
+    lastConsoleRow
+      ? lastConsoleRow["Total de Depósitos"]
+      : formatCurrency(totalDepositsFinal)
+  } aan investeringen</b> en <b>${
+    lastConsoleRow
+      ? lastConsoleRow["Juros Acumulados"]
+      : formatCurrency(totalJurosAcumuladosFinal)
+  } aan gecumuleerde rente</b>.
+      ` : `
   If you start with an <b>initial investment of ${formatCurrency(
     initialInvestment
   )}</b> and invest <b>${formatCurrency(
@@ -301,13 +325,13 @@ document.getElementById("calcular").addEventListener("click", function (e) {
         labels,
         datasets: [
           {
-            label: "Total investments",
+            label: NL ? "Totale investeringen" : "Total investments",
             data: montanteTotalGraphData,
             backgroundColor: "#FD8D2B",
             stack: "Stack 0",
           },
           {
-            label: "Accumulated interest",
+            label: NL ? "Gecumuleerde rente" : "Accumulated interest",
             data: jurosAcumuladosGraphData,
             backgroundColor: "#2970FF",
             stack: "Stack 0",
@@ -385,8 +409,8 @@ document.getElementById("calcular").addEventListener("click", function (e) {
             callbacks: {
               title: (t) =>
                 t[0].dataIndex + 1 === 1
-                  ? "1 year"
-                  : `${t[0].dataIndex + 1} years`,
+                  ? (NL ? "1 jaar" : "1 year")
+                  : `${t[0].dataIndex + 1} ${NL ? "jaar" : "years"}`,
               label: (c) => formatCurrency(parseFloat(c.raw)),
               labelColor: function (context) {
                 return {
@@ -403,7 +427,7 @@ document.getElementById("calcular").addEventListener("click", function (e) {
           },
           title: {
             display: true,
-            text: "Final balance",
+            text: NL ? "Eindsaldo" : "Final balance",
             align: "start",
             color: "#3A4454",
             font: {
@@ -420,7 +444,7 @@ document.getElementById("calcular").addEventListener("click", function (e) {
             stacked: true,
             title: {
               display: true,
-              text: "Years",
+              text: NL ? "Jaren" : "Years",
               align: "end",
               color: "#3A4454",
               font: {
