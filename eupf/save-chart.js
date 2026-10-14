@@ -161,6 +161,12 @@ document.addEventListener("DOMContentLoaded", function () {
     return cv.toDataURL("image/png", 1.0);
   }
 
+  // The click no longer reaches Webflow, so close the "..." menu here.
+  function closeMenu(btn) {
+    const dd = btn.closest(".w-dropdown");
+    if (dd && window.jQuery) window.jQuery(dd).triggerHandler("w-close");
+  }
+
   const graphButton = document.querySelector("[download-graph-image-button]");
   if (!graphButton) return;
 
@@ -173,27 +179,39 @@ document.addEventListener("DOMContentLoaded", function () {
     true
   );
 
-  graphButton.addEventListener("click", function (e) {
-    e.preventDefault();
-    const root = document.querySelector(EXPORT_SELECTOR);
-    const wasHidden = root && !root.getBoundingClientRect().width;
+  // Listen on window in the capture phase: savings and early-loan have an
+  // inline embed that catches this click on document (capture) and stops it,
+  // and its html2canvas version has the same iPhone problem.
+  window.addEventListener(
+    "click",
+    function (e) {
+      const btn = e.target && e.target.closest && e.target.closest("[download-graph-image-button]");
+      if (!btn) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeMenu(btn);
 
-    // Show the chart tab first (the toggle is synchronous).
-    const toggleBtn = document.querySelector("[graphic-button]");
-    if (toggleBtn) toggleBtn.click();
+      const root = document.querySelector(EXPORT_SELECTOR);
+      const wasHidden = root && !root.getBoundingClientRect().width;
 
-    if (!wasHidden) {
-      const url = composeExport();
-      if (url) triggerDownload(url, fileName());
-      return;
-    }
+      // Show the chart tab first (the toggle is synchronous).
+      const toggleBtn = document.querySelector("[graphic-button]");
+      if (toggleBtn) toggleBtn.click();
 
-    // The chart was on a hidden tab: give Chart.js two frames to repaint.
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
+      if (!wasHidden) {
         const url = composeExport();
         if (url) triggerDownload(url, fileName());
+        return;
+      }
+
+      // The chart was on a hidden tab: give Chart.js two frames to repaint.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          const url = composeExport();
+          if (url) triggerDownload(url, fileName());
+        });
       });
-    });
-  });
+    },
+    true
+  );
 });

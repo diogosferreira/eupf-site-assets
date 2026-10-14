@@ -161,25 +161,37 @@ document.addEventListener("DOMContentLoaded", function () {
       warm().catch(function () {});
     });
 
-    tableButton.addEventListener("click", function (e) {
-      e.preventDefault();
-      $("[table-button]").click();
+    // Listen on window in the capture phase: savings and early-loan have an
+    // inline embed that catches this click on document (capture) and stops it.
+    window.addEventListener(
+      "click",
+      function (e) {
+        var btn = e.target && e.target.closest && e.target.closest("[download-table-image-button]");
+        if (!btn) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        // The click no longer reaches Webflow, so close the "..." menu here.
+        var dd = btn.closest(".w-dropdown");
+        if (dd && window.jQuery) window.jQuery(dd).triggerHandler("w-close");
+        $("[table-button]").click();
 
-      if (cachedUrl) {
-        // Fast path: nothing asynchronous between the tap and the download.
-        triggerDownload(cachedUrl, fileName());
-        return;
-      }
+        if (cachedUrl) {
+          // Fast path: nothing asynchronous between the tap and the download.
+          triggerDownload(cachedUrl, fileName());
+          return;
+        }
 
-      // No image ready (desktop, or menu opened by keyboard): the old
-      // behaviour still works.
-      warm()
-        .then(function (url) {
-          triggerDownload(url, fileName());
-        })
-        .catch(function (err) {
-          console.error(err);
-        });
-    });
+        // No image ready (desktop, or menu opened by keyboard): the old
+        // behaviour still works.
+        warm()
+          .then(function (url) {
+            triggerDownload(url, fileName());
+          })
+          .catch(function (err) {
+            console.error(err);
+          });
+      },
+      true
+    );
   }
 });
