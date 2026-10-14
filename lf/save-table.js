@@ -1,115 +1,185 @@
 document.addEventListener("DOMContentLoaded", function () {
-  // Function to capture and download a div as an image with padding
-  /*function downloadDivAsImage(divSelector, filename, padding = 30) {
-    const targetDiv = document.querySelector(divSelector);
-    if (!targetDiv) {
-      console.error("Div not found:", divSelector);
-      return;
-    }
+  // Loads html2canvas only on first use when the page does not already have it.
+  function ensureHtml2Canvas() {
+    if (window.html2canvas) return Promise.resolve(window.html2canvas);
+    if (window.__h2cPromise) return window.__h2cPromise;
+    window.__h2cPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src =
+        "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload = function () {
+        resolve(window.html2canvas);
+      };
+      s.onerror = function () {
+        window.__h2cPromise = null;
+        reject(new Error("html2canvas failed to load"));
+      };
+      document.head.appendChild(s);
+    });
+    return window.__h2cPromise;
+  }
 
-    // Clone the target div to avoid modifying the original
-    const clonedDiv = targetDiv.cloneNode(true);
+  // iPhone Safari only allows a download while it is still tied to the user's
+  // tap. html2canvas takes hundreds of milliseconds to draw the table, which
+  // always falls outside that window, so the download never worked on iPhone.
+  // The image is now built when the "..." menu opens, and the click is instant.
+  // Same file in eupf/ and lf/.
+  var TABLE_SELECTOR = ".table-content-watermark_wrapper";
+  var PADDING = 30;
+  var cachedUrl = null;
+  var pending = null;
 
-    // Wrap the cloned div inside a new container with padding
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "absolute";
-    wrapper.style.left = "-9999px"; // Move it off-screen
-    wrapper.style.padding = `${padding}px`;
-    wrapper.style.backgroundColor = "#ffffff"; // Ensure a clean white background
-    wrapper.appendChild(clonedDiv);
+  function invalidate() {
+    cachedUrl = null;
+    pending = null;
+  }
 
+  function buildImage() {
+    var target = document.querySelector(TABLE_SELECTOR);
+    if (!target) return Promise.reject(new Error("Div not found: " + TABLE_SELECTOR));
+
+    var h2cReady = ensureHtml2Canvas();
+
+    // Render an off-screen clone: no need to switch tabs or touch what the
+    // person is looking at to build the image.
+    var wrapper = document.createElement("div");
+    wrapper.style.cssText =
+      "position:absolute;left:-9999px;top:0;padding:" +
+      PADDING +
+      "px;background:#fff;box-sizing:border-box;";
+    var clone = target.cloneNode(true);
+    clone.style.display = "block";
+    clone.style.maxHeight = "none";
+    clone.style.overflow = "visible";
+    wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
 
-    // Capture the padded wrapper instead of the original div
-    html2canvas(wrapper, {
-      scale: 4,
-      useCORS: true,
-      willReadFrequently: true,
-    }).then((canvas) => {
-      const link = document.createElement("a");
-      link.href = canvas.toDataURL("image/png");
-      link.download = filename;
-      link.click();
+    function cleanup() {
+      if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+    }
 
-      // Remove the temporary wrapper after capturing
-      document.body.removeChild(wrapper);
-    });
+    return Promise.resolve()
+      .then(function () {
+        return document.fonts && document.fonts.ready;
+      })
+      .then(function () {
+        return new Promise(function (r) {
+          requestAnimationFrame(function () {
+            requestAnimationFrame(r);
+          });
+        });
+      })
+      .then(function () {
+        return h2cReady;
+      })
+      .then(function (html2canvas) {
+        var rect = wrapper.getBoundingClientRect();
+        var maxDim = 16384; // safe-ish browser limit
+        var scale = Math.min(
+          2, // don't force 4x for very tall content
+          maxDim / Math.max(rect.width, 1),
+          maxDim / Math.max(rect.height, 1)
+        );
+        return html2canvas(wrapper, {
+          backgroundColor: "#fff",
+          useCORS: true,
+          willReadFrequently: true,
+          scale: scale,
+        });
+      })
+      .then(function (canvas) {
+        var url = canvas.toDataURL("image/png");
+        cleanup();
+        return url;
+      })
+      .catch(function (err) {
+        cleanup();
+        throw err;
+      });
   }
 
-  // Capture table image
-  const tableButton = document.querySelector("[download-table-image-button]");
-
-  const isHabitacao = window.location.pathname.includes(
-    "/simulador-credito-a-habitacao"
-  );
-  const fileName = isHabitacao
-    ? "simulacaoLT-tabela-prestacao-credito-habitação.png"
-    : "simulacaoLT-tabela-juros-compostos.png";
-
-  if (tableButton) {
-    tableButton.addEventListener("click", function () {
-      $("[table-button]").click();
-      downloadDivAsImage(".table-content-watermark_wrapper", fileName, 30);
-    });
+  function warm() {
+    if (cachedUrl || pending) return pending;
+    pending = buildImage()
+      .then(function (url) {
+        cachedUrl = url;
+        return url;
+      })
+      .catch(function (err) {
+        pending = null;
+        throw err;
+      });
+    return pending;
   }
 
-*/
-
-  async function downloadDivAsImage(divSelector, filename, padding = 30) {
-    const targetDiv = document.querySelector(divSelector);
-    if (!targetDiv) return console.error("Div not found:", divSelector);
-
-    // Wait for layout/fonts to settle
-    if (document.fonts?.ready) await document.fonts.ready;
-    await new Promise((r) =>
-      requestAnimationFrame(() => requestAnimationFrame(r))
-    );
-
-    const rect = targetDiv.getBoundingClientRect();
-    const maxDim = 16384; // safe-ish browser limit
-    const safeScale = Math.min(
-      2, // don't force 4x for very tall content
-      maxDim / Math.max(rect.width + padding * 2, 1),
-      maxDim / Math.max(rect.height + padding * 2, 1)
-    );
-
-    const canvas = await html2canvas(targetDiv, {
-      backgroundColor: "#fff",
-      useCORS: true,
-      scale: safeScale,
-      onclone: (doc) => {
-        const el = doc.querySelector(divSelector);
-        if (!el) return;
-        el.style.padding = `${padding}px`;
-        el.style.boxSizing = "border-box";
-        el.style.overflow = "visible";
-        el.style.maxHeight = "none";
-      },
-    });
-
-    const link = document.createElement("a");
-    link.href = canvas.toDataURL("image/png");
+  function triggerDownload(url, filename) {
+    var link = document.createElement("a");
+    link.href = url;
     link.download = filename;
+    // The link must be in the document: Safari ignores clicks on detached elements.
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
   }
 
   const tableButton = document.querySelector("[download-table-image-button]");
-  const isHabitacao = window.location.pathname.includes(
-    "/simulador-credito-a-habitacao"
-  );
-  const fileName = isHabitacao
-    ? "simulacaoLT-tabela-prestacao-credito-habitacao.png"
-    : "simulacaoLT-tabela-juros-compostos.png";
+  function fileName() {
+    var path = window.location.pathname;
+    var names = [
+      ["sp-500-historical", "SP500-historical-returns"],
+      ["sp500", "SP500"],
+      ["mortgage-calculator", "mortgage-payment-calculator"],
+      ["personal-loan", "personal-loan"],
+      ["savings-calculator", "savings"],
+      ["early-loan-repayment", "early-loan-repayment"],
+    ];
+    var hit = names.find(function (n) { return path.indexOf(n[0]) !== -1; });
+    return "simulationEU-table-" + (hit ? hit[1] : "compound-interest") + ".png";
+  }
 
   if (tableButton) {
-    tableButton.addEventListener("click", async () => {
+    // The image is stale as soon as the numbers change.
+    document.addEventListener("input", invalidate, true);
+    document.addEventListener("change", invalidate, true);
+    document.addEventListener(
+      "click",
+      function (e) {
+        if (e.target && e.target.closest && e.target.closest("#calcular")) invalidate();
+      },
+      true
+    );
+
+    // Build it when the "..." menu opens: that gives the time the click does not have.
+    var dropdown = tableButton.closest(".w-dropdown");
+    var toggle = dropdown && dropdown.querySelector(".w-dropdown-toggle");
+    if (toggle) {
+      toggle.addEventListener("pointerdown", function () {
+        warm().catch(function () {});
+      });
+    }
+    tableButton.addEventListener("pointerenter", function () {
+      warm().catch(function () {});
+    });
+
+    tableButton.addEventListener("click", function (e) {
+      e.preventDefault();
       $("[table-button]").click();
-      await new Promise((r) => setTimeout(r, 100)); // let DOM update after tab switch
-      await downloadDivAsImage(
-        ".table-content-watermark_wrapper",
-        fileName,
-        30
-      );
+
+      if (cachedUrl) {
+        // Fast path: nothing asynchronous between the tap and the download.
+        triggerDownload(cachedUrl, fileName());
+        return;
+      }
+
+      // No image ready (desktop, or menu opened by keyboard): the old
+      // behaviour still works.
+      warm()
+        .then(function (url) {
+          triggerDownload(url, fileName());
+        })
+        .catch(function (err) {
+          console.error(err);
+        });
     });
   }
 });

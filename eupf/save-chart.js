@@ -1,118 +1,199 @@
-/*document.addEventListener("DOMContentLoaded", function () {
-  function downloadGraphImage() {
-    const graphElement = document.querySelector(".graph-image-export");
+/* Download chart image
+   The chart block (.graph-image-export) used to go through html2canvas. On
+   iPhone Safari html2canvas never finishes when the target contains a
+   <canvas> (the Chart.js chart): the promise stays pending forever, with no
+   error, so the download never happened. Safari also only allows a download
+   while it is still tied to the user's tap.
 
-    if (!graphElement) {
-      console.error("Graph export element not found.");
-      return;
+   The block is now composed by hand on a canvas, from the positions measured
+   in the DOM: backgrounds, the Chart.js canvas, SVG icons/watermark and text.
+   It takes a few milliseconds and runs inside the click.
+   Same file in eupf/ and lf/. */
+document.addEventListener("DOMContentLoaded", function () {
+  const EXPORT_SELECTOR = ".graph-image-export";
+  const S = 2; // 2x so the image is not blurry
+  const PAD = 30 * S;
+  const svgCache = new Map();
+
+  function fileName() {
+    const path = window.location.pathname;
+    const names = [
+      ["fire-calculator", "FIRE"],
+      ["sp-500-historical", "SP500-historical-returns"],
+      ["sp500", "SP500"],
+      ["mortgage-calculator", "mortgage-payment-calculator"],
+      ["personal-loan", "personal-loan"],
+      ["savings-calculator", "savings"],
+      ["early-loan-repayment", "early-loan-repayment"],
+    ];
+    const hit = names.find(function (n) { return path.includes(n[0]); });
+    return "simulationEU-chart-" + (hit ? hit[1] : "compound-interest") + ".png";
+  }
+
+  // The link must be in the document: Safari ignores clicks on detached elements.
+  function triggerDownload(url, filename) {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // A serialized SVG loses the colours that came from CSS: copy the computed
+  // fill/stroke of every shape into the clone, or it comes out invisible.
+  function svgToImage(svg) {
+    return new Promise(function (resolve) {
+      const clone = svg.cloneNode(true);
+      const src = svg.querySelectorAll("*");
+      const dst = clone.querySelectorAll("*");
+      for (let i = 0; i < src.length; i++) {
+        const cs = getComputedStyle(src[i]);
+        if (cs.fill) dst[i].setAttribute("fill", cs.fill);
+        if (cs.stroke && cs.stroke !== "none") dst[i].setAttribute("stroke", cs.stroke);
+      }
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.removeAttribute("style");
+      const vb = (clone.getAttribute("viewBox") || "").split(/[\s,]+/);
+      if (vb.length === 4) {
+        clone.setAttribute("width", vb[2]);
+        clone.setAttribute("height", vb[3]);
+      }
+      const blob = new Blob([new XMLSerializer().serializeToString(clone)], {
+        type: "image/svg+xml;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  // SVGs are preloaded so the composition itself can be synchronous on click.
+  function preloadSvgs() {
+    const root = document.querySelector(EXPORT_SELECTOR);
+    if (!root) return Promise.resolve();
+    const svgs = Array.prototype.slice.call(root.querySelectorAll("svg"));
+    return Promise.all(
+      svgs.map(function (svg) {
+        return svgToImage(svg).then(function (img) { svgCache.set(svg, img); });
+      })
+    );
+  }
+
+  function composeExport() {
+    const root = document.querySelector(EXPORT_SELECTOR);
+    if (!root) return null;
+    const R = root.getBoundingClientRect();
+    if (!R.width || !R.height) return null;
+
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(R.width * S) + PAD * 2;
+    cv.height = Math.round(R.height * S) + PAD * 2;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, cv.width, cv.height);
+
+    const px = (v) => v * S;
+    const X = (b) => PAD + px(b.left - R.left);
+    const Y = (b) => PAD + px(b.top - R.top);
+
+    function roundRect(x, y, w, h, r) {
+      r = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      ctx.fill();
     }
 
-    html2canvas(graphElement, {
-      backgroundColor: "#ffffff",
-      scale: 2,
-      useCORS: true, // Ensures cross-origin images can be loaded
-      allowTaint: false, // Prevents tainting by ignoring non-CORS images
-    })
-      .then((canvas) => {
-        addPaddingAndSave(canvas, 40); // Adds 20px padding
-      })
-      .catch((error) => {
-        console.error("Error capturing graph with html2canvas:", error);
-      });
-  }
+    // 1) backgrounds, charts and icons
+    root.querySelectorAll("*").forEach(function (el) {
+      const b = el.getBoundingClientRect();
+      if (b.width < 1 || b.height < 1) return;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || +cs.opacity === 0) return;
+      const tag = el.tagName.toLowerCase();
 
-  function addPaddingAndSave(originalCanvas, padding) {
-    const finalCanvas = document.createElement("canvas");
-    finalCanvas.width = originalCanvas.width + padding * 2;
-    finalCanvas.height = originalCanvas.height + padding * 2;
-    const ctx = finalCanvas.getContext("2d");
+      if (tag === "canvas") {
+        ctx.drawImage(el, X(b), Y(b), px(b.width), px(b.height));
+        return;
+      }
+      if (tag === "svg") {
+        const img = svgCache.get(el);
+        if (img) ctx.drawImage(img, X(b), Y(b), px(b.width), px(b.height));
+        return;
+      }
+      if (el.closest("svg")) return;
+      const bg = cs.backgroundColor;
+      if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+        ctx.fillStyle = bg;
+        roundRect(X(b), Y(b), px(b.width), px(b.height), px(parseFloat(cs.borderRadius) || 0));
+      }
+    });
 
-    // Fill background with white
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+    // 2) text, node by node (axis titles and legends are HTML on some pages)
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    let node;
+    while ((node = walker.nextNode())) {
+      const txt = node.nodeValue.replace(/\s+/g, " ").trim();
+      if (!txt) continue;
+      const parent = node.parentElement;
+      if (!parent || parent.closest("svg, script, style")) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const b = range.getBoundingClientRect();
+      if (b.width < 1 || b.height < 1) continue;
+      const cs = getComputedStyle(parent);
+      if (cs.visibility === "hidden" || +cs.opacity === 0) continue;
+      ctx.fillStyle = cs.color;
+      ctx.font =
+        cs.fontStyle + " " + cs.fontWeight + " " + px(parseFloat(cs.fontSize)) + "px " + cs.fontFamily;
+      ctx.fillText(txt, X(b), Y(b) + px(b.height) / 2);
+    }
 
-    // Draw the original canvas onto the new one with padding
-    ctx.drawImage(originalCanvas, padding, padding);
-
-    saveImage(finalCanvas);
-  }
-
-  function saveImage(canvas) {
-    // Determine the filename based on the URL
-    const fileName = window.location.pathname.includes("/calculadora-fire")
-      ? "simulationEU-chart-FIRE.png"
-      : window.location.pathname.includes("/sp500")
-      ? "simulationEU-chart-SP500.png"
-      : window.location.pathname.includes("/mortgage-calculator-euros")
-      ? "simulationEU-chart-mortgage-payment-calculator.png"
-      : "simulationEU-chart-compound-interest.png";
-
-    const link = document.createElement("a");
-    link.href = canvas.toDataURL("image/png", 1.0);
-    link.download = fileName;
-    link.click();
+    return cv.toDataURL("image/png", 1.0);
   }
 
   const graphButton = document.querySelector("[download-graph-image-button]");
-  if (graphButton) {
-    graphButton.addEventListener("click", downloadGraphImage);
-  }
-});*/
+  if (!graphButton) return;
 
-document.addEventListener("DOMContentLoaded", function () {
-  function downloadGraphImage() {
+  preloadSvgs();
+  document.addEventListener(
+    "click",
+    function (e) {
+      if (e.target && e.target.closest && e.target.closest("#calcular")) preloadSvgs();
+    },
+    true
+  );
+
+  graphButton.addEventListener("click", function (e) {
+    e.preventDefault();
+    const root = document.querySelector(EXPORT_SELECTOR);
+    const wasHidden = root && !root.getBoundingClientRect().width;
+
+    // Show the chart tab first (the toggle is synchronous).
     const toggleBtn = document.querySelector("[graphic-button]");
     if (toggleBtn) toggleBtn.click();
 
-    // Wait a frame so it renders
-    setTimeout(() => {
-      const graphElement = document.querySelector(".graph-image-export");
-      if (!graphElement) {
-        console.error("Graph export element not found.");
-        return;
-      }
+    if (!wasHidden) {
+      const url = composeExport();
+      if (url) triggerDownload(url, fileName());
+      return;
+    }
 
-      html2canvas(graphElement, {
-        backgroundColor: "#ffffff",
-        scale: 2,
-        useCORS: true,
-        allowTaint: false,
-      })
-        .then((canvas) => addPaddingAndSave(canvas, 40))
-        .catch((error) => {
-          console.error("Error capturing graph with html2canvas:", error);
-        });
-    }, 50);
-  }
-
-  function addPaddingAndSave(originalCanvas, padding) {
-    const finalCanvas = document.createElement("canvas");
-    finalCanvas.width = originalCanvas.width + padding * 2;
-    finalCanvas.height = originalCanvas.height + padding * 2;
-    const ctx = finalCanvas.getContext("2d");
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-    ctx.drawImage(originalCanvas, padding, padding);
-    saveImage(finalCanvas);
-  }
-
-  function saveImage(canvas) {
-    const fileName = window.location.pathname.includes("/calculadora-fire")
-      ? "simulationEU-chart-FIRE.png"
-      : window.location.pathname.includes("/sp500")
-      ? "simulationEU-chart-SP500.png"
-      : window.location.pathname.includes("/mortgage-calculator-euros")
-      ? "simulationEU-chart-mortgage-payment-calculator.png"
-      : "simulationEU-chart-compound-interest.png";
-
-    const link = document.createElement("a");
-    link.href = canvas.toDataURL("image/png", 1.0);
-    link.download = fileName;
-    link.click();
-  }
-
-  const graphButton = document.querySelector("[download-graph-image-button]");
-  if (graphButton) {
-    graphButton.addEventListener("click", downloadGraphImage);
-  }
+    // The chart was on a hidden tab: give Chart.js two frames to repaint.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        const url = composeExport();
+        if (url) triggerDownload(url, fileName());
+      });
+    });
+  });
 });
