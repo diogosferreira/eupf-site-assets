@@ -353,7 +353,7 @@
     if (P) {
       swap(res, exact({ "Results": "Wyniki" }));
     } else {
-      swap(res, exact({ "Total capital (in euros €)": "Totaal kapitaal (in euro's €)" }));
+      swap(res, exact({ "Total capital": "Totaal kapitaal", "(in euros €)": "(in euro's €)" }));
       fixCharts({ "Before": "Vóór", "After prepayment": "Na aflossing" });
       fixNumbers(resultRoots());
     }
