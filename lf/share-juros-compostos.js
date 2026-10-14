@@ -1,5 +1,11 @@
 document.addEventListener("DOMContentLoaded", function () {
-  const form = document.querySelector("#wf-form-Form"); // Select the form
+  // The calculator form: "#wf-form-Form" on most pages, other ids on some (e.g. "calc-poupanca")
+  const calcularEl = document.querySelector("#calcular");
+  const form =
+    document.querySelector("#wf-form-Form") ||
+    (calcularEl && calcularEl.closest("form")) ||
+    document.querySelector("form:not(#footer-form)");
+  if (!form) return;
   const inputs = form.querySelectorAll("input, select"); // Get all inputs and select fields
   const shareUrlButton = document.querySelector("[share-url]"); // Select share button
   const calcularButton = document.querySelector("#calcular"); // Select calcular button
