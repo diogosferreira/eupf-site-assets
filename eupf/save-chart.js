@@ -52,6 +52,9 @@ document.addEventListener("DOMContentLoaded", function () {
         if (cs.fill) dst[i].setAttribute("fill", cs.fill);
         if (cs.stroke && cs.stroke !== "none") dst[i].setAttribute("stroke", cs.stroke);
       }
+      // The watermark (Figma export) has a <foreignObject> blur layer, which
+      // taints the canvas and blocks the export. It adds nothing visible here.
+      clone.querySelectorAll("foreignObject").forEach(function (fo) { fo.remove(); });
       clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
       clone.removeAttribute("style");
       const vb = (clone.getAttribute("viewBox") || "").split(/[\s,]+/);
@@ -158,7 +161,12 @@ document.addEventListener("DOMContentLoaded", function () {
       ctx.fillText(txt, X(b), Y(b) + px(b.height) / 2);
     }
 
-    return cv.toDataURL("image/png", 1.0);
+    try {
+      return cv.toDataURL("image/png", 1.0);
+    } catch (err) {
+      console.error("Chart export failed:", err);
+      return null;
+    }
   }
 
   // The click no longer reaches Webflow, so close the "..." menu here.
